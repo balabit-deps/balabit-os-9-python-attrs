@@ -2,3 +2,4 @@
 0002-Link-to-local-copy-of-logo.patch
 0003-Revert-theme.patch
 0004-Drop-sphinx-notfound.extension-not-in-Debian.patch
+0005-Rework-linecache-handling-828.patch

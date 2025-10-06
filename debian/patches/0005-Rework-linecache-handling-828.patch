@@ -1,0 +1,160 @@
+From: =?utf-8?q?Tin_Tvrtkovi=C4=87?= <tinchester@gmail.com>
+Date: Wed, 30 Jun 2021 08:28:56 +0200
+Subject: Rework linecache handling (#828)
+
+* Rework linecache handling
+
+* lint
+
+* Add changelog
+
+(cherry picked from commit 38580632ceac1cd6e477db71e1d190a4130beed4)
+---
+ changelog.d/828.changes.rst |  1 +
+ src/attr/_make.py           | 56 +++++++++++++++++++--------------------------
+ tests/test_dunders.py       | 28 ++++++++++++++++++++---
+ 3 files changed, 49 insertions(+), 36 deletions(-)
+ create mode 100644 changelog.d/828.changes.rst
+
+diff --git a/changelog.d/828.changes.rst b/changelog.d/828.changes.rst
+new file mode 100644
+index 0000000..b4a5454
+--- /dev/null
++++ b/changelog.d/828.changes.rst
+@@ -0,0 +1 @@
++Generated source code is now cached more efficiently for identical classes.
+diff --git a/src/attr/_make.py b/src/attr/_make.py
+index a1912b1..6110bc1 100644
+--- a/src/attr/_make.py
++++ b/src/attr/_make.py
+@@ -5,7 +5,6 @@ import inspect
+ import linecache
+ import sys
+ import threading
+-import uuid
+ import warnings
+ 
+ from operator import itemgetter
+@@ -327,16 +326,25 @@ def _make_method(name, script, filename, globs=None):
+     if globs is None:
+         globs = {}
+ 
+-    _compile_and_eval(script, globs, locs, filename)
+-
+     # In order of debuggers like PDB being able to step through the code,
+     # we add a fake linecache entry.
+-    linecache.cache[filename] = (
+-        len(script),
+-        None,
+-        script.splitlines(True),
+-        filename,
+-    )
++    count = 1
++    base_filename = filename
++    while True:
++        linecache_tuple = (
++            len(script),
++            None,
++            script.splitlines(True),
++            filename,
++        )
++        old_val = linecache.cache.setdefault(filename, linecache_tuple)
++        if old_val == linecache_tuple:
++            break
++        else:
++            filename = "{}-{}>".format(base_filename[:-1], count)
++            count += 1
++
++    _compile_and_eval(script, globs, locs, filename)
+ 
+     return locs[name]
+ 
+@@ -1601,30 +1609,12 @@ def _generate_unique_filename(cls, func_name):
+     """
+     Create a "filename" suitable for a function being generated.
+     """
+-    unique_id = uuid.uuid4()
+-    extra = ""
+-    count = 1
+-
+-    while True:
+-        unique_filename = "<attrs generated {0} {1}.{2}{3}>".format(
+-            func_name,
+-            cls.__module__,
+-            getattr(cls, "__qualname__", cls.__name__),
+-            extra,
+-        )
+-        # To handle concurrency we essentially "reserve" our spot in
+-        # the linecache with a dummy line.  The caller can then
+-        # set this value correctly.
+-        cache_line = (1, None, (str(unique_id),), unique_filename)
+-        if (
+-            linecache.cache.setdefault(unique_filename, cache_line)
+-            == cache_line
+-        ):
+-            return unique_filename
+-
+-        # Looks like this spot is taken. Try again.
+-        count += 1
+-        extra = "-{0}".format(count)
++    unique_filename = "<attrs generated {0} {1}.{2}>".format(
++        func_name,
++        cls.__module__,
++        getattr(cls, "__qualname__", cls.__name__),
++    )
++    return unique_filename
+ 
+ 
+ def _make_hash(cls, attrs, frozen, cache_hash):
+diff --git a/tests/test_dunders.py b/tests/test_dunders.py
+index 70f26d0..6d0b76c 100644
+--- a/tests/test_dunders.py
++++ b/tests/test_dunders.py
+@@ -936,6 +936,16 @@ class C(object):
+     pass
+ 
+ 
++CopyC = C
++
++
++@attr.s(hash=True, order=True)
++class C(object):
++    """A different class, to generate different methods."""
++
++    a = attr.ib()
++
++
+ class TestFilenames(object):
+     def test_filenames(self):
+         """
+@@ -953,15 +963,27 @@ class TestFilenames(object):
+             OriginalC.__hash__.__code__.co_filename
+             == "<attrs generated hash tests.test_dunders.C>"
+         )
++        assert (
++            CopyC.__init__.__code__.co_filename
++            == "<attrs generated init tests.test_dunders.C>"
++        )
++        assert (
++            CopyC.__eq__.__code__.co_filename
++            == "<attrs generated eq tests.test_dunders.C>"
++        )
++        assert (
++            CopyC.__hash__.__code__.co_filename
++            == "<attrs generated hash tests.test_dunders.C>"
++        )
+         assert (
+             C.__init__.__code__.co_filename
+-            == "<attrs generated init tests.test_dunders.C-2>"
++            == "<attrs generated init tests.test_dunders.C-1>"
+         )
+         assert (
+             C.__eq__.__code__.co_filename
+-            == "<attrs generated eq tests.test_dunders.C-2>"
++            == "<attrs generated eq tests.test_dunders.C-1>"
+         )
+         assert (
+             C.__hash__.__code__.co_filename
+-            == "<attrs generated hash tests.test_dunders.C-2>"
++            == "<attrs generated hash tests.test_dunders.C-1>"
+         )

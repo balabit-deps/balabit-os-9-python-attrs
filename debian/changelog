@@ -1,3 +1,10 @@
+python-attrs (21.2.0-1ubuntu1) jammy; urgency=medium
+
+  * d/p/0005-Rework-linecache-handling-828.patch: Cherry-pick upstream PR 826 
+    - Fix memory leak when creating many identical classes (Fixes LP: #2121607)
+
+ -- Zachary Raines <zachary.raines@canonical.com>  Mon, 06 Oct 2025 15:28:54 +0000
+
 python-attrs (21.2.0-1) unstable; urgency=medium
 
   [ Steffen Möller ]
